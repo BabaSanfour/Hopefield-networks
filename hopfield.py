@@ -120,3 +120,43 @@ class HopfieldNetwork:
             
         print("Warning: Network did not fully converge within max_steps.")
         return state
+
+# 1. Setup
+N = 100 # Number of neurons (pixels)
+hopfield = HopfieldNetwork(num_neurons=N)
+
+# 2. Create Memories (Random patterns for simplicity)
+# Using random patterns ensures they are orthogonal-ish, which is best for storage.
+num_memories = 3
+memories = np.random.choice([-1, 1], size=(num_memories, N))
+
+# 3. Train
+hopfield.train(memories)
+
+# 4. Test Retrieval
+target_memory = memories[0] # Let's try to recall the first memory
+
+# Create a "corrupted" version (flip 20% of the bits)
+noise_level = 0.2
+n_flips = int(N * noise_level)
+indices_to_flip = np.random.choice(N, n_flips, replace=False)
+
+corrupted_input = target_memory.copy()
+corrupted_input[indices_to_flip] *= -1 # Flip the signs
+
+# 5. Run the Network
+recovered_state = hopfield.predict(corrupted_input, synchronous=False)
+
+# 6. visual check (First 10 neurons)
+print("\n--- Results ---")
+print(f"Original:  {target_memory[:10]} ...")
+print(f"Corrupted: {corrupted_input[:10]} ...")
+print(f"Recovered: {recovered_state[:10]} ...")
+
+# Check if we got it back exactly
+if np.array_equal(recovered_state, target_memory):
+    print("\nSuccess! Memory perfectly recalled.")
+elif np.array_equal(recovered_state, -target_memory):
+    print("\nSuccess! Recalled the 'negative' image (physically valid).")
+else:
+    print("\nFailed to recall. The network got stuck in a spurious local minimum.")
