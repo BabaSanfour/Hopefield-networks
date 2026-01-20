@@ -121,42 +121,65 @@ class HopfieldNetwork:
         print("Warning: Network did not fully converge within max_steps.")
         return state
 
-# 1. Setup
-N = 100 # Number of neurons (pixels)
-hopfield = HopfieldNetwork(num_neurons=N)
 
-# 2. Create Memories (Random patterns for simplicity)
-# Using random patterns ensures they are orthogonal-ish, which is best for storage.
-num_memories = 3
-memories = np.random.choice([-1, 1], size=(num_memories, N))
+class ModernHopfieldNetwork:
+    """
+    Dense Associative Memory (Modern Hopfield Network).
+    """
+    def __init__(self, num_neurons, beta=1.0):
+        self.num_neurons = num_neurons
+        self.patterns = None
+        self.beta = beta # Inverse temperature (1/T). High beta = Argmax behavior.
 
-# 3. Train
-hopfield.train(memories)
+    def train(self, patterns):
+        """
+        In Modern Hopfield Nets, 'training' is just storing the matrix P.
+        We do NOT compute a weight matrix W (size N x N).
+        Instead, we keep the raw patterns (size M x N).
+        """
+        self.patterns = patterns
+        self.num_patterns = patterns.shape[0]
 
-# 4. Test Retrieval
-target_memory = memories[0] # Let's try to recall the first memory
+    def update(self, state):
+        """
+        Update rule: x_new = sign( P.T @ softmax(beta * P @ x) )
+        This is Attention(Q, K, V) where Q=state, K=V=patterns.
+        """
+        # 1. Similarity (Dot Product)
+        # Check how well the state matches EACH memory.
+        # Shape: (M, N) @ (N,) -> (M,)
+        overlap = self.patterns @ state
+        
+        # 2. Attention Weights (Softmax)
+        # We apply the exponential function to create a "winner-take-all" effect.
+        logits = self.beta * overlap
+        
+        # Numerically stable softmax
+        logits_max = np.max(logits)
+        exp_logits = np.exp(logits - logits_max)
+        probs = exp_logits / np.sum(exp_logits)
+        
+        # 3. Weighted Reconstruction
+        # Construct the new state as a weighted average of ALL memories.
+        # If beta is high, 'probs' will be [0, 0, 1, 0], effectively copying the best match.
+        # Shape: (N, M) @ (M,) -> (N,)
+        new_continuous = self.patterns.T @ probs
+        
+        # 4. Binarize (for Ising model compatibility)
+        # Note: Modern Hopfield nets can work with continuous states, 
+        # but for this homework comparing to Classical, we enforce binary states.
+        # Handle the 0 case (inertia)
+        new_binary = np.sign(new_continuous)
+        new_binary[new_binary == 0] = state[new_binary == 0] 
+        
+        return new_binary
 
-# Create a "corrupted" version (flip 20% of the bits)
-noise_level = 0.2
-n_flips = int(N * noise_level)
-indices_to_flip = np.random.choice(N, n_flips, replace=False)
-
-corrupted_input = target_memory.copy()
-corrupted_input[indices_to_flip] *= -1 # Flip the signs
-
-# 5. Run the Network
-recovered_state = hopfield.predict(corrupted_input, synchronous=False)
-
-# 6. visual check (First 10 neurons)
-print("\n--- Results ---")
-print(f"Original:  {target_memory[:10]} ...")
-print(f"Corrupted: {corrupted_input[:10]} ...")
-print(f"Recovered: {recovered_state[:10]} ...")
-
-# Check if we got it back exactly
-if np.array_equal(recovered_state, target_memory):
-    print("\nSuccess! Memory perfectly recalled.")
-elif np.array_equal(recovered_state, -target_memory):
-    print("\nSuccess! Recalled the 'negative' image (physically valid).")
-else:
-    print("\nFailed to recall. The network got stuck in a spurious local minimum.")
+    def predict(self, corrupted_pattern, max_steps=5):
+        # Modern networks converge EXTREMELY fast (often 1 step).
+        state = corrupted_pattern.copy()
+        for i in range(max_steps):
+            new_state = self.update(state)
+            if np.all(new_state == state):
+                return new_state
+            state = new_state
+        return state
